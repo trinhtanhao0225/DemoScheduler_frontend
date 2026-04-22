@@ -18,70 +18,23 @@ import { CSS } from '@dnd-kit/utilities';
 
 import SettingsTab from './SettingTab';
 
-const API_URL = 'https://demo-scheduler.onrender.com'; 
+const API_URL = 'https://demo-scheduler-1.onrender.com'; 
 
 const fakeData = {
   employees: [
-    {
-      id: "N1",
-      name: "Alice Nguyen",
-      role: "Nurse",
-      is_senior: true,
-      weekly_max_hours: 40,
-    },
-    {
-      id: "N2",
-      name: "Bob Tran",
-      role: "Nurse",
-      is_senior: true,
-      weekly_max_hours: 40,
-    },
-    {
-      id: "N3",
-      name: "Catherine Le",
-      role: "Nurse",
-      is_senior: true,
-      weekly_max_hours: 40,
-    },
-    {
-      id: "N4",
-      name: "Diana Pham",
-      role: "Nurse",
-      is_senior: false,
-      weekly_max_hours: 40,
-    },
-    {
-      id: "C1",
-      name: "Grace Vu",
-      role: "Caregiver",
-      is_senior: true,
-      weekly_max_hours: 40,
-    },
-    {
-      id: "C2",
-      name: "Henry Vo",
-      role: "Caregiver",
-      is_senior: false,
-      weekly_max_hours: 40,
-    },
-    {
-      id: "C3",
-      name: "Ivan Dang",
-      role: "Caregiver",
-      is_senior: false,
-      weekly_max_hours: 40,
-    },
-    {
-      id: "C4",
-      name: "Jenny Phan",
-      role: "Caregiver",
-      is_senior: false,
-      weekly_max_hours: 40,
-    }
+    { id: "N1", name: "Alice Nguyen", role: "Nurse", is_senior: true, weekly_max_hours: 40 },
+    { id: "N2", name: "Bob Tran", role: "Nurse", is_senior: true, weekly_max_hours: 40 },
+    { id: "N3", name: "Catherine Le", role: "Nurse", is_senior: true, weekly_max_hours: 40 },
+    { id: "N4", name: "Diana Pham", role: "Nurse", is_senior: false, weekly_max_hours: 40 },
+    { id: "C1", name: "Grace Vu", role: "Caregiver", is_senior: true, weekly_max_hours: 40 },
+    { id: "C2", name: "Henry Vo", role: "Caregiver", is_senior: false, weekly_max_hours: 40 },
+    { id: "C3", name: "Ivan Dang", role: "Caregiver", is_senior: false, weekly_max_hours: 40 },
+    { id: "C4", name: "Jenny Phan", role: "Caregiver", is_senior: false, weekly_max_hours: 40 }
   ],
   num_days: 7,
   min_staff: { M: 2, E: 2, N: 1 }
 };
+
 // ================= COMPONENTS =================
 function EmployeeItem({ emp, isOverlay = false }) {
   const { attributes, listeners, setNodeRef, transform } = useSortable({
@@ -117,7 +70,7 @@ function ShiftSlot({ dayIdx, shift, assigned, onRemove }) {
     data: { dayIdx, shift }
   });
 
-  const shiftNames = { M: "7h - 15h", E: "15h - 23h", N: "23h - 7h" };
+  const shiftNames = { M: "07:00 - 15:00", E: "15:00 - 23:00", N: "23:00 - 07:00" };
 
   return (
     <div
@@ -167,13 +120,16 @@ export default function App() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  // 1. Tạo lịch ngẫu nhiên (Không ép theo constraints quá chặt)
+  // 1. RANDOM DRAFT - Bỏ qua Constraints hoàn toàn
   const fetchSchedule = async () => {
     setLoading(true);
+    setWarnings([]);
     try {
       const res = await axios.post(`${API_URL}/generate-schedule`, {
         ...fakeData,
         manual_schedule: null, 
+        constraints: null,      // Reset constraints
+        use_constraints: false  // Lệnh quan trọng cho Backend
       });
 
       if (res.data.status === "success") {
@@ -182,38 +138,39 @@ export default function App() {
         setHasUnsavedChanges(true);
       }
     } catch (err) {
-      alert("Kết nối Server thất bại!");
+      alert("Random Draft Failed! Is the server awake?");
     } finally {
       setLoading(false);
     }
   };
 
-  // 2. NÚT MỚI: Tạo lịch dựa theo Tab Constraints (Ô Xanh/Đỏ)
+  // 2. APPLY CONSTRAINTS - Ép AI làm theo luật Xanh/Đỏ
   const handleGenerateByConstraints = async () => {
     setLoading(true);
     try {
       const res = await axios.post(`${API_URL}/generate-schedule`, {
         ...fakeData,
-        manual_schedule: null, // Để AI tự tính
-        constraints: constraints // Gửi ràng buộc để AI khóa ô
+        manual_schedule: null,
+        constraints: constraints,
+        use_constraints: true  // Bật luật lên
       });
 
       if (res.data.status === "success") {
         setSchedule(res.data.schedule);
         setWarnings(res.data.statistics?.shortage_details || []);
         setHasUnsavedChanges(true);
-        alert("AI đã điền lịch dựa theo các ràng buộc của bạn!");
+        alert("Schedule updated with your constraints!");
       } else {
-        alert("Không tìm thấy phương án thỏa mãn các ô Xanh/Đỏ đã chọn!");
+        alert("No feasible solution for these constraints!");
       }
     } catch (err) {
-      alert("Lỗi hệ thống khi tạo lịch theo ràng buộc!");
+      alert("System Error: Check logic in Rule Builder.");
     } finally {
       setLoading(false);
     }
   };
 
-  // 3. Kiểm tra và Lưu lịch hiện tại
+  // 3. SAVE / VALIDATE - Kiểm tra lịch kéo thả + Constraints
   const handleSaveSchedule = async () => {
     if (!schedule) return;
     setLoading(true);
@@ -221,15 +178,16 @@ export default function App() {
       const res = await axios.post(`${API_URL}/generate-schedule`, {
         ...fakeData,
         manual_schedule: schedule, 
-        constraints: constraints   
+        constraints: constraints,
+        use_constraints: true   
       });
 
       setSchedule(res.data.schedule);
       setWarnings(res.data.statistics?.shortage_details || []);
       setHasUnsavedChanges(false);
-      alert("Lưu và kiểm tra vi phạm thành công!");
+      alert("Schedule synced successfully!");
     } catch (err) {
-      alert("Lỗi khi kiểm tra lịch!");
+      alert("Sync failed: Hard rule violation detected.");
     } finally {
       setLoading(false);
     }
@@ -271,12 +229,12 @@ export default function App() {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">AI STAFF SCHEDULER</h1>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Medical Center Management</p>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Medical Center Management System</p>
           </div>
 
           <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm">
-            <button onClick={() => setActiveTab("schedule")} className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${activeTab === "schedule" ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>Schedule</button>
-            <button onClick={() => setActiveTab("settings")} className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${activeTab === "settings" ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>Constraints</button>
+            <button onClick={() => setActiveTab("schedule")} className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${activeTab === "schedule" ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>Board View</button>
+            <button onClick={() => setActiveTab("settings")} className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${activeTab === "settings" ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>Rule Builder</button>
           </div>
         </header>
 
@@ -284,7 +242,7 @@ export default function App() {
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className={`w-3 h-3 rounded-full ${hasUnsavedChanges ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
-            <span className="text-sm font-bold text-slate-600">{hasUnsavedChanges ? "Changes unsaved" : "Schedule synced"}</span>
+            <span className="text-sm font-bold text-slate-600">{hasUnsavedChanges ? "Pending Changes" : "System Synchronized"}</span>
           </div>
 
           <div className="flex flex-wrap gap-3 w-full sm:w-auto">
@@ -292,28 +250,27 @@ export default function App() {
               Random Draft
             </button>
 
-            {/* NÚT MỚI THÊM VÀO ĐÂY */}
             <button 
               onClick={handleGenerateByConstraints} 
               disabled={loading} 
               className="px-4 py-2.5 rounded-xl font-bold text-sm bg-indigo-600 text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center gap-2"
             >
-              ✨ {loading ? "Processing..." : "Auto-Fill (Constraints)"}
+              ✨ {loading ? "Optimizing..." : "Apply Constraints"}
             </button>
 
             <button onClick={handleSaveSchedule} disabled={loading || !schedule} className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm ${hasUnsavedChanges ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-slate-100 text-slate-400 border border-slate-200"}`}>
-              Validate & Save
+              Validate & Sync
             </button>
           </div>
         </div>
 
-        {/* CONTENT */}
+        {/* CONTENT AREA */}
         {activeTab === "settings" ? (
           <SettingsTab employees={fakeData.employees} constraints={constraints} setConstraints={setConstraints} />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveDrag(e.active.data.current?.employee)} onDragEnd={onDragEnd}>
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-8">
-              <h3 className="font-bold text-xs uppercase tracking-widest text-slate-400 mb-4">Personnel Pool</h3>
+              <h3 className="font-bold text-xs uppercase tracking-widest text-slate-400 mb-4">Available Personnel</h3>
               <SortableContext items={fakeData.employees.map(e => e.id)} strategy={horizontalListSortingStrategy}>
                 <div className="flex flex-wrap gap-3">
                   {fakeData.employees.map((emp) => (
@@ -340,27 +297,29 @@ export default function App() {
                   ) : (
                     <div className="h-[400px] flex flex-col items-center justify-center text-slate-300 border-2 border-dashed border-slate-100 rounded-2xl gap-3">
                       <span className="text-4xl">📅</span>
-                      <p className="font-bold">No schedule active. Click a Generate button above.</p>
+                      <p className="font-bold">No active schedule. Use Generate buttons above to start.</p>
                     </div>
                   )}
                 </div>
               </div>
 
+              {/* VALIDATION SIDEBAR */}
               <div className="w-full lg:w-[350px] sticky top-8">
                 <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                  <h4 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest">Validation Status</h4>
+                  <h4 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest">Live Validation Status</h4>
                   {warnings.length > 0 ? (
                     <div className="max-h-[400px] overflow-y-auto space-y-3 pr-2">
                       {warnings.map((w, i) => (
-                        <div key={i} className="flex gap-3 p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-600 text-xs font-semibold leading-relaxed">
+                        <div key={i} className="flex gap-3 p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-600 text-[11px] font-semibold leading-relaxed">
                           <span className="flex-shrink-0">⚠️</span> {w}
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-8 text-center bg-emerald-50 rounded-2xl border border-emerald-100">
-                      <span className="text-3xl mb-2">🎉</span>
-                      <p className="text-emerald-700 font-bold text-sm">Clear!</p>
+                      <span className="text-3xl mb-2">✅</span>
+                      <p className="text-emerald-700 font-bold text-sm">Policy Compliant</p>
+                      <p className="text-emerald-500 text-[10px] uppercase font-bold mt-1">No violations detected</p>
                     </div>
                   )}
                 </div>
