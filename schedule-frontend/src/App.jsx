@@ -18,7 +18,7 @@ import { CSS } from '@dnd-kit/utilities';
 
 import SettingsTab from './SettingTab';
 
-const API_URL = 'https://demo-scheduler-1.onrender.com'; 
+const API_URL = 'https://demo-scheduler-1.onrender.com';
 
 const fakeData = {
   employees: [
@@ -120,16 +120,16 @@ export default function App() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  // 1. RANDOM DRAFT - Bỏ qua Constraints hoàn toàn
+  // 1. RANDOM DRAFT
   const fetchSchedule = async () => {
     setLoading(true);
     setWarnings([]);
     try {
       const res = await axios.post(`${API_URL}/generate-schedule`, {
         ...fakeData,
-        manual_schedule: null, 
-        constraints: null,      // Reset constraints
-        use_constraints: false  // Lệnh quan trọng cho Backend
+        manual_schedule: null,
+        constraints: null,
+        use_constraints: false
       });
 
       if (res.data.status === "success") {
@@ -144,7 +144,7 @@ export default function App() {
     }
   };
 
-  // 2. APPLY CONSTRAINTS - Ép AI làm theo luật Xanh/Đỏ
+  // 2. APPLY CONSTRAINTS
   const handleGenerateByConstraints = async () => {
     setLoading(true);
     try {
@@ -152,7 +152,7 @@ export default function App() {
         ...fakeData,
         manual_schedule: null,
         constraints: constraints,
-        use_constraints: true  // Bật luật lên
+        use_constraints: true
       });
 
       if (res.data.status === "success") {
@@ -170,24 +170,67 @@ export default function App() {
     }
   };
 
-  // 3. SAVE / VALIDATE - Kiểm tra lịch kéo thả + Constraints
+  // 3. SAVE / VALIDATE - ĐÃ SỬA ĐỂ HIỂN THỊ THÔNG BÁO VI PHẠM
   const handleSaveSchedule = async () => {
     if (!schedule) return;
+
     setLoading(true);
+    setWarnings([]);
+
     try {
       const res = await axios.post(`${API_URL}/generate-schedule`, {
         ...fakeData,
-        manual_schedule: schedule, 
+        manual_schedule: schedule,
         constraints: constraints,
-        use_constraints: true   
+        use_constraints: true
       });
 
-      setSchedule(res.data.schedule);
-      setWarnings(res.data.statistics?.shortage_details || []);
+      const data = res.data;
+
+      if (data.status === "error") {
+        alert("Lỗi server: " + (data.message || "Unknown error"));
+        return;
+      }
+
+      // Lấy violations và shortages
+      const violations = data.violations || [];
+      const shortages = data.shortages || data.statistics?.shortage_details || [];
+
+      // Nếu có vi phạm
+      if (violations.length > 0 || shortages.length > 0) {
+        const allWarnings = [...violations, ...shortages];
+        setWarnings(allWarnings);
+
+        let message = "❌ Không thể đồng bộ lịch!\n\n";
+
+        if (violations.length > 0) {
+          message += "VI PHẠM QUY TẮC CỨNG:\n";
+          violations.forEach(v => {
+            message += `• ${v}\n`;
+          });
+          message += "\n";
+        }
+
+        if (shortages.length > 0) {
+          message += "THIẾU NHÂN SỰ:\n";
+          shortages.forEach(s => {
+            message += `• ${s}\n`;
+          });
+        }
+
+        alert(message);
+        return;
+      }
+
+      // Thành công - Không có vi phạm
+      setSchedule(data.schedule);
+      setWarnings([]);
       setHasUnsavedChanges(false);
-      alert("Schedule synced successfully!");
+      alert("✅ Lịch đã được đồng bộ thành công!");
+
     } catch (err) {
-      alert("Sync failed: Hard rule violation detected.");
+      console.error(err);
+      alert("Lỗi kết nối server. Vui lòng thử lại sau.");
     } finally {
       setLoading(false);
     }
@@ -200,14 +243,20 @@ export default function App() {
 
     const emp = active.data.current.employee;
     const { dayIdx, shift } = over.data.current;
-    
+
     const next = JSON.parse(JSON.stringify(schedule));
+
+    // Xóa nhân viên khỏi tất cả ca trong ngày đó
     ["M", "E", "N"].forEach((s) => {
       next[String(dayIdx)][s] = next[String(dayIdx)][s].filter((x) => x.id !== emp.id);
     });
 
+    // Thêm vào ca mới
     next[String(dayIdx)][shift].push({
-      id: emp.id, name: emp.name, role: emp.role, is_senior: emp.is_senior,
+      id: emp.id,
+      name: emp.name,
+      role: emp.role,
+      is_senior: emp.is_senior,
     });
 
     setSchedule(next);
@@ -233,8 +282,18 @@ export default function App() {
           </div>
 
           <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm">
-            <button onClick={() => setActiveTab("schedule")} className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${activeTab === "schedule" ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>Board View</button>
-            <button onClick={() => setActiveTab("settings")} className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${activeTab === "settings" ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>Rule Builder</button>
+            <button 
+              onClick={() => setActiveTab("schedule")} 
+              className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${activeTab === "schedule" ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
+            >
+              Board View
+            </button>
+            <button 
+              onClick={() => setActiveTab("settings")} 
+              className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${activeTab === "settings" ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
+            >
+              Rule Builder
+            </button>
           </div>
         </header>
 
@@ -242,11 +301,17 @@ export default function App() {
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className={`w-3 h-3 rounded-full ${hasUnsavedChanges ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
-            <span className="text-sm font-bold text-slate-600">{hasUnsavedChanges ? "Pending Changes" : "System Synchronized"}</span>
+            <span className="text-sm font-bold text-slate-600">
+              {hasUnsavedChanges ? "Pending Changes" : "System Synchronized"}
+            </span>
           </div>
 
           <div className="flex flex-wrap gap-3 w-full sm:w-auto">
-            <button onClick={fetchSchedule} disabled={loading} className="px-4 py-2.5 rounded-xl font-bold text-sm bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all">
+            <button 
+              onClick={fetchSchedule} 
+              disabled={loading} 
+              className="px-4 py-2.5 rounded-xl font-bold text-sm bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all"
+            >
               Random Draft
             </button>
 
@@ -258,7 +323,12 @@ export default function App() {
               ✨ {loading ? "Optimizing..." : "Apply Constraints"}
             </button>
 
-            <button onClick={handleSaveSchedule} disabled={loading || !schedule} className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm ${hasUnsavedChanges ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-slate-100 text-slate-400 border border-slate-200"}`}>
+            <button 
+              onClick={handleSaveSchedule} 
+              disabled={loading || !schedule} 
+              className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm 
+                ${hasUnsavedChanges ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-slate-100 text-slate-400 border border-slate-200"}`}
+            >
               Validate & Sync
             </button>
           </div>
@@ -266,12 +336,24 @@ export default function App() {
 
         {/* CONTENT AREA */}
         {activeTab === "settings" ? (
-          <SettingsTab employees={fakeData.employees} constraints={constraints} setConstraints={setConstraints} />
+          <SettingsTab 
+            employees={fakeData.employees} 
+            constraints={constraints} 
+            setConstraints={setConstraints} 
+          />
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveDrag(e.active.data.current?.employee)} onDragEnd={onDragEnd}>
+          <DndContext 
+            sensors={sensors} 
+            collisionDetection={closestCenter} 
+            onDragStart={(e) => setActiveDrag(e.active.data.current?.employee)} 
+            onDragEnd={onDragEnd}
+          >
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-8">
               <h3 className="font-bold text-xs uppercase tracking-widest text-slate-400 mb-4">Available Personnel</h3>
-              <SortableContext items={fakeData.employees.map(e => e.id)} strategy={horizontalListSortingStrategy}>
+              <SortableContext 
+                items={fakeData.employees.map(e => e.id)} 
+                strategy={horizontalListSortingStrategy}
+              >
                 <div className="flex flex-wrap gap-3">
                   {fakeData.employees.map((emp) => (
                     <EmployeeItem key={emp.id} emp={emp} />
@@ -287,9 +369,17 @@ export default function App() {
                     <div className="flex gap-4 min-w-[1200px]">
                       {Object.keys(schedule).map((d) => (
                         <div key={d} className="flex-1 min-w-[160px] space-y-4">
-                          <div className="bg-slate-800 text-white text-center py-3 rounded-xl font-bold text-xs uppercase tracking-widest">Day {parseInt(d) + 1}</div>
+                          <div className="bg-slate-800 text-white text-center py-3 rounded-xl font-bold text-xs uppercase tracking-widest">
+                            Day {parseInt(d) + 1}
+                          </div>
                           {["M", "E", "N"].map((s) => (
-                            <ShiftSlot key={s} dayIdx={d} shift={s} assigned={schedule[d][s] || []} onRemove={handleRemove} />
+                            <ShiftSlot 
+                              key={s} 
+                              dayIdx={d} 
+                              shift={s} 
+                              assigned={schedule[d][s] || []} 
+                              onRemove={handleRemove} 
+                            />
                           ))}
                         </div>
                       ))}
