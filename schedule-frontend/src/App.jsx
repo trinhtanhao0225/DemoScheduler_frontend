@@ -138,7 +138,7 @@ export default function App() {
         setHasUnsavedChanges(true);
       }
     } catch (err) {
-      alert("Random Draft Failed! Is the server awake?");
+      alert("Random Draft Failed! Server may be sleeping.");
     } finally {
       setLoading(false);
     }
@@ -170,7 +170,7 @@ export default function App() {
     }
   };
 
-  // 3. SAVE / VALIDATE - ĐÃ SỬA ĐỂ HIỂN THỊ THÔNG BÁO VI PHẠM
+  // 3. VALIDATE & SYNC - ĐÃ SỬA ĐỂ XỬ LÝ TỐT HƠN
   const handleSaveSchedule = async () => {
     if (!schedule) return;
 
@@ -178,11 +178,15 @@ export default function App() {
     setWarnings([]);
 
     try {
-      const res = await axios.post(`${API_URL}/generate-schedule`, {
+      const payload = {
         ...fakeData,
         manual_schedule: schedule,
         constraints: constraints,
         use_constraints: true
+      };
+
+      const res = await axios.post(`${API_URL}/generate-schedule`, payload, {
+        timeout: 45000, // Tăng timeout lên 45 giây vì validate thường chậm hơn
       });
 
       const data = res.data;
@@ -192,11 +196,10 @@ export default function App() {
         return;
       }
 
-      // Lấy violations và shortages
+      // Lấy thông tin vi phạm
       const violations = data.violations || [];
       const shortages = data.shortages || data.statistics?.shortage_details || [];
 
-      // Nếu có vi phạm
       if (violations.length > 0 || shortages.length > 0) {
         const allWarnings = [...violations, ...shortages];
         setWarnings(allWarnings);
@@ -205,32 +208,34 @@ export default function App() {
 
         if (violations.length > 0) {
           message += "VI PHẠM QUY TẮC CỨNG:\n";
-          violations.forEach(v => {
-            message += `• ${v}\n`;
-          });
+          violations.forEach(v => message += `• ${v}\n`);
           message += "\n";
         }
-
         if (shortages.length > 0) {
           message += "THIẾU NHÂN SỰ:\n";
-          shortages.forEach(s => {
-            message += `• ${s}\n`;
-          });
+          shortages.forEach(s => message += `• ${s}\n`);
         }
 
         alert(message);
         return;
       }
 
-      // Thành công - Không có vi phạm
-      setSchedule(data.schedule);
+      // Thành công
+      setSchedule(data.schedule || schedule);
       setWarnings([]);
       setHasUnsavedChanges(false);
       alert("✅ Lịch đã được đồng bộ thành công!");
 
     } catch (err) {
-      console.error(err);
-      alert("Lỗi kết nối server. Vui lòng thử lại sau.");
+      console.error("Validate Error:", err);
+
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        alert("⏳ Server đang khởi động lại (Render Free).\n\nVui lòng chờ khoảng 20-30 giây rồi bấm nút Validate & Sync lần nữa.");
+      } else if (err.response) {
+        alert(`Lỗi từ server: ${err.response.status} - ${err.response.data?.message || 'Unknown'}`);
+      } else {
+        alert("Lỗi kết nối server.\nServer có thể đang ngủ. Vui lòng thử lại sau 20 giây.");
+      }
     } finally {
       setLoading(false);
     }
@@ -246,12 +251,10 @@ export default function App() {
 
     const next = JSON.parse(JSON.stringify(schedule));
 
-    // Xóa nhân viên khỏi tất cả ca trong ngày đó
     ["M", "E", "N"].forEach((s) => {
       next[String(dayIdx)][s] = next[String(dayIdx)][s].filter((x) => x.id !== emp.id);
     });
 
-    // Thêm vào ca mới
     next[String(dayIdx)][shift].push({
       id: emp.id,
       name: emp.name,
@@ -329,7 +332,7 @@ export default function App() {
               className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm 
                 ${hasUnsavedChanges ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-slate-100 text-slate-400 border border-slate-200"}`}
             >
-              Validate & Sync
+              {loading ? "Validating..." : "Validate & Sync"}
             </button>
           </div>
         </div>
